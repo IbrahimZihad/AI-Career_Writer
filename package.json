@@ -1,0 +1,16 @@
+{
+  "name": "ai-career-writer",
+  "version": "1.0.0",
+  "description": "AI-powered cover letter writer, CV polisher and summarizer built on Claude.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": { "node": ">=18" },
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "dotenv": "^18.0.3",
+    "express": "^5.2.1"
+  }
+}
