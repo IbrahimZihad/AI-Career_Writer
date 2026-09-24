@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI Career Writer</title>
+<style>
+:root{--bg:#f5f6fb;--card:#fff;--text:#182033;--muted:#5d667a;--line:#dde1ec;--accent:#2f5bea;--on:#fff;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1220;--card:#181e31;--text:#e8ebf5;--muted:#9aa3ba;--line:#2b3350;--accent:#6c8cff;--on:#0e1220}}
+:root[data-theme="dark"]{--bg:#0e1220;--card:#181e31;--text:#e8ebf5;--muted:#9aa3ba;--line:#2b3350;--accent:#6c8cff;--on:#0e1220}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:760px;margin:0 auto;padding:24px 16px 48px}
+h1{margin:0 0 4px;font-size:1.6rem}
+.sub{margin:0 0 20px;color:var(--muted)}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.tab{border:1px solid var(--line);background:var(--card);color:var(--text);padding:8px 14px;border-radius:999px;font:inherit;cursor:pointer}
+.tab[aria-selected="true"]{background:var(--accent);color:var(--on);border-color:var(--accent)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:16px}
+label{display:block;font-weight:600;font-size:.9rem;margin:0 0 6px}
+textarea,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);font:inherit}
+textarea{resize:vertical}
+.f{margin-bottom:14px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.btn{border:0;background:var(--accent);color:var(--on);padding:10px 18px;border-radius:10px;font:inherit;font-weight:600;cursor:pointer}
+.btn.alt{background:transparent;color:var(--text);border:1px solid var(--line)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+#status{color:var(--muted);font-size:.9rem}
+#out{white-space:pre-wrap;word-wrap:break-word;min-height:60px}
+.hint{color:var(--muted)}
+.note{background:var(--bg);border:1px dashed var(--line);border-radius:10px;padding:10px;color:var(--muted);font-size:.9rem;margin-bottom:16px}
+</style>
+</head>
+<body>
+<main>
+  <h1>✍️ AI Career Writer</h1>
+  <p class="sub">Cover letters, sharper CV bullets, and quick summaries, written by Claude.</p>
+  <div class="tabs" id="tabs" role="tablist"></div>
+  <div class="note" id="notice" hidden></div>
+  <div class="card">
+    <div id="form"></div>
+    <div class="row">
+      <button class="btn" id="go" disabled>Generate</button>
+      <button class="btn alt" id="stop" hidden>Stop</button>
+      <span id="status">Connecting…</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;margin-bottom:8px">
+      <strong>Result</strong>
+      <button class="btn alt" id="copy" hidden>Copy</button>
+    </div>
+    <div id="out" class="hint">Your result will appear here. Always review it and check the facts before you send it.</div>
+  </div>
+</main>
+<script>
+var RULES = "You are a careful career writing assistant. Use only facts the user provides; never invent employers, tools, numbers or credentials. Output plain text only, with no markdown and no preamble.\n\n";
+var MODES = {
+  cover: {
+    label: "Cover letter",
+    fields: [
+      {id: "job", label: "Job post", ph: "Paste the job ad here…", rows: 6},
+      {id: "me", label: "About you", ph: "Your background, skills and key projects…", rows: 6}
+    ],
+    sel: {label: "Tone", opts: ["Professional", "Warm", "Confident"]},
+    prompt: function (v, s) {
+      return RULES + "Write a concise cover letter (about 200 words) in a " + s.toLowerCase() +
+        " tone for the job post below. Address it to \"Dear Hiring Team,\" unless a name is given, and end with a sign-off.\n\nJOB POST:\n" +
+        v.job + "\n\nCANDIDATE BACKGROUND:\n" + v.me;
+    }
+  },
+  cv: {
+    label: "CV polish",
+    fields: [
+      {id: "role", label: "Target role", ph: "e.g. AI-focused junior developer", rows: 2},
+      {id: "text", label: "Your CV bullets or summary", ph: "Paste them here…", rows: 8}
+    ],
+    sel: {label: "Style", opts: ["Concise", "Impact-focused"]},
+    prompt: function (v, s) {
+      return RULES + "Rewrite the CV text below to suit the target role. Style: " + s.toLowerCase() +
+        ". Keep every fact accurate, start each bullet with a strong verb, keep each bullet under 25 words, and return one bullet per line starting with \"- \".\n\nTARGET ROLE:\n" +
+        v.role + "\n\nCV TEXT:\n" + v.text;
+    }
+  },
+  sum: {
+    label: "Summarizer",
+    fields: [{id: "text", label: "Text to summarize", ph: "Paste an article, email or job ad…", rows: 10}],
+    sel: {label: "Format", opts: ["Short (2-3 sentences)", "One paragraph", "Key points (bullets)"]},
+    prompt: function (v, s) {
+      return RULES + "Summarize the text below. Format: " + s + ". For bullets, start each line with \"- \".\n\nTEXT:\n" + v.text;
+    }
+  }
+};
+
+var $ = function (id) { return document.getElementById(id); };
+var cur = "cover", sample = null, ctrl = null;
+
+function show(key) {
+  cur = key;
+  var m = MODES[key];
+  var tabs = $("tabs");
+  tabs.innerHTML = "";
+  Object.keys(MODES).forEach(function (k) {
+    var b = document.createElement("button");
+    b.className = "tab";
+    b.textContent = MODES[k].label;
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", k === key ? "true" : "false");
+    b.onclick = function () { show(k); };
+    tabs.appendChild(b);
+  });
+  var html = "";
+  m.fields.forEach(function (f) {
+    html += '<div class="f"><label for="' + f.id + '">' + f.label + '</label><textarea id="' + f.id +
+      '" rows="' + f.rows + '" placeholder="' + f.ph + '"></textarea></div>';
+  });
+  html += '<div class="f"><label for="sel">' + m.sel.label + '</label><select id="sel">' +
+    m.sel.opts.map(function (o) { return "<option>" + o + "</option>"; }).join("") + "</select></div>";
+  $("form").innerHTML = html;
+  $("out").textContent = "Your result will appear here. Always review it and check the facts before you send it.";
+  $("out").className = "hint";
+  $("copy").hidden = true;
+  $("status").textContent = sample ? "" : $("status").textContent;
+}
+
+function setBusy(b) {
+  $("go").disabled = b || !sample;
+  $("stop").hidden = !b;
+}
+
+async function generate() {
+  var m = MODES[cur], v = {}, missing = false;
+  m.fields.forEach(function (f) {
+    v[f.id] = $(f.id).value.trim();
+    if (!v[f.id]) missing = true;
+  });
+  if (missing) { $("status").textContent = "Please fill in every box."; return; }
+  ctrl = new AbortController();
+  setBusy(true);
+  $("copy").hidden = true;
+  $("out").className = "";
+  $("out").textContent = "";
+  $("status").textContent = "Thinking…";
+  try {
+    var r = await sample(m.prompt(v, $("sel").value), {
+      signal: ctrl.signal,
+      cache: false,
+      onText: function (t) { $("out").textContent = t.text; $("status").textContent = "Writing…"; }
+    });
+    $("out").textContent = r.text;
+    $("status").textContent = r.truncated ? "Result was cut short. Try shorter input." : "Done.";
+    $("copy").hidden = !r.text;
+  } catch (e) {
+    var c = e && e.code;
+    $("status").textContent =
+      c === "cancelled" ? "Stopped." :
+      c === "not_granted" ? "Permission was not granted, so the AI can't run." :
+      c === "rate_limited" ? "Too many requests. Please wait a moment and try again." :
+      "Something went wrong. Please try again.";
+    if (e && e.text) { $("out").textContent = e.text; $("copy").hidden = false; }
+  }
+  setBusy(false);
+}
+
+$("go").onclick = generate;
+$("stop").onclick = function () { if (ctrl) ctrl.abort(); };
+$("copy").onclick = function () {
+  var t = $("out").textContent;
+  try {
+    navigator.clipboard.writeText(t).then(function () { $("status").textContent = "Copied."; },
+      function () { $("status").textContent = "Select the text and copy it manually."; });
+  } catch (e) { $("status").textContent = "Select the text and copy it manually."; }
+};
+
+show("cover");
+(async function () {
+  try { sample = window.claude ? await claude.use("sample") : null; } catch (e) { sample = null; }
+  if (sample) { $("go").disabled = false; $("status").textContent = ""; }
+  else {
+    $("status").textContent = "";
+    $("notice").hidden = false;
+    $("notice").textContent = "The AI features only work when this page is opened inside Claude.";
+  }
+})();
+</script>
+</body>
+</html>
